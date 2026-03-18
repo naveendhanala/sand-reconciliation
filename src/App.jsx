@@ -247,34 +247,30 @@ function StatusBadge({status}){
 export default function App(){
   const [data,setData]=useState({trips:[],weighments:[],inventory:[],nextId:1});
   const [loading,setLoading]=useState(true);
-  const loaded=useRef(false);
-  const prevTrips=useRef([]);
+  const isFirstSync=useRef(true);
 
   // ─── Load from Supabase ───
   useEffect(()=>{
     supabase.from('trips').select('data').order('created_at',{ascending:false})
       .then(({data:rows,error})=>{
-        if(!error&&rows&&rows.length>0){
+        if(error){console.error('Supabase load error:',error);}
+        else if(rows&&rows.length>0){
           const trips=rows.map(r=>r.data);
           const maxId=Math.max(0,...trips.map(t=>Number(t.id)).filter(n=>!isNaN(n)));
-          prevTrips.current=trips;
           setData(d=>({...d,trips,nextId:maxId+1}));
         }
-        loaded.current=true;
         setLoading(false);
       });
   },[]);
 
   // ─── Sync changes to Supabase ───
   useEffect(()=>{
-    if(!loaded.current)return;
-    const changed=data.trips.filter(t=>{
-      const prev=prevTrips.current.find(p=>p.id===t.id);
-      return !prev||JSON.stringify(prev)!==JSON.stringify(t);
-    });
-    if(changed.length>0)supabase.from('trips').upsert(changed.map(t=>({id:t.id,data:t})));
-    prevTrips.current=data.trips;
-  },[data]);
+    if(isFirstSync.current){isFirstSync.current=false;return;}
+    if(data.trips.length===0)return;
+    supabase.from('trips')
+      .upsert(data.trips.map(t=>({id:t.id,data:t})))
+      .then(({error})=>{if(error)console.error('Supabase sync error:',error);});
+  },[data.trips]);
   const [page,setPage]=useState('dashboard');
   const [search,setSearch]=useState('');
   const [modal,setModal]=useState(null);
