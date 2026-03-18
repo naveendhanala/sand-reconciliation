@@ -265,11 +265,14 @@ export default function App(){
 
   // ─── Sync changes to Supabase ───
   useEffect(()=>{
-    if(isFirstSync.current){isFirstSync.current=false;return;}
-    if(data.trips.length===0)return;
+    if(isFirstSync.current){isFirstSync.current=false;console.log('[Supabase] skipping first sync');return;}
+    if(data.trips.length===0){console.log('[Supabase] no trips, skipping sync');return;}
+    console.log('[Supabase] upserting',data.trips.length,'trips');
     supabase.from('trips')
       .upsert(data.trips.map(t=>({id:t.id,data:t})))
-      .then(({error})=>{if(error)console.error('Supabase sync error:',error);});
+      .then(({error,data:res})=>{
+        console.log('[Supabase] upsert result:',res,'error:',error);
+      });
   },[data.trips]);
   const [page,setPage]=useState('dashboard');
   const [search,setSearch]=useState('');
