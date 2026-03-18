@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
+import { supabase } from './supabase';
 
 // ─── Constants & Seed Data ───────────────────────────────────────────────────
 
@@ -244,24 +245,36 @@ function StatusBadge({status}){
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 export default function App(){
-  const [data,setData]=useState(()=>{
-    try{
-      const s=localStorage.getItem('sand_recon');
-      if(s){
-        const d=JSON.parse(s);
-        // migrate: renumber trips if any ID is non-numeric
-        if(d.trips.some(t=>!/^\d+$/.test(t.id))){
-          const sorted=[...d.trips].sort((a,b)=>new Date(a.tripTime)-new Date(b.tripTime));
-          sorted.forEach((t,i)=>{t.id=String(i+1);});
-          d.trips=sorted;
-          d.nextId=sorted.length+1;
+  const [data,setData]=useState({trips:[],weighments:[],inventory:[],nextId:1});
+  const [loading,setLoading]=useState(true);
+  const loaded=useRef(false);
+  const prevTrips=useRef([]);
+
+  // ─── Load from Supabase ───
+  useEffect(()=>{
+    supabase.from('trips').select('data').order('created_at',{ascending:false})
+      .then(({data:rows,error})=>{
+        if(!error&&rows&&rows.length>0){
+          const trips=rows.map(r=>r.data);
+          const maxId=Math.max(0,...trips.map(t=>Number(t.id)).filter(n=>!isNaN(n)));
+          prevTrips.current=trips;
+          setData(d=>({...d,trips,nextId:maxId+1}));
         }
-        return d;
-      }
-    }catch(_){}
-    return {trips:[],weighments:[],inventory:[],nextId:1};
-  });
-  useEffect(()=>{try{localStorage.setItem('sand_recon',JSON.stringify(data));}catch(_){}},[data]);
+        loaded.current=true;
+        setLoading(false);
+      });
+  },[]);
+
+  // ─── Sync changes to Supabase ───
+  useEffect(()=>{
+    if(!loaded.current)return;
+    const changed=data.trips.filter(t=>{
+      const prev=prevTrips.current.find(p=>p.id===t.id);
+      return !prev||JSON.stringify(prev)!==JSON.stringify(t);
+    });
+    if(changed.length>0)supabase.from('trips').upsert(changed.map(t=>({id:t.id,data:t})));
+    prevTrips.current=data.trips;
+  },[data]);
   const [page,setPage]=useState('dashboard');
   const [search,setSearch]=useState('');
   const [modal,setModal]=useState(null);
@@ -332,6 +345,8 @@ export default function App(){
     {key:'inventory',label:'Inventory',icon:Icons.box},
     {key:'reports',label:'Reports',icon:Icons.bar},
   ];
+
+  if(loading)return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'#0F1117',color:'#9498AE',fontFamily:'DM Sans,sans-serif',fontSize:15}}>Loading trips…</div>;
 
   return(
     <>
